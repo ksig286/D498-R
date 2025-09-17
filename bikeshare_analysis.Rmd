@@ -1,0 +1,176 @@
+---
+title: "Bike Share Data Analysis"
+author: "Michael Tabb"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include =FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(lubridate)
+graphics.off() # reset plots
+```
+
+Introduction
+For this project, I analyzed bikeshare data from Chicago, New York City, and Washington.
+The goal was to answer four main questions:
+
+What is the most popular day of the week in each city?
+
+What is the average trip duration by user type and city?
+
+What are the most common start stations in each city?
+
+What are the peak hours of usage by city?
+
+Data Preparation
+I created a reusable function called load_city_data() to load and clean the data for each city.
+Then I combined all three datasets into one dataframe.
+
+```{r}
+# Function to load and clean data
+load_city_data <- function(file_path, city_name) {
+  data <- read_csv(file_path) %>%
+    mutate(
+      Start_Time_Parsed = parse_date_time(`Start Time`,
+                                          orders = c("Ymd HMS", "Y-m-d H:M:S",
+                                                     "m/d/Y H:M", "m/d/Y H:M:S")),
+      City = city_name
+    ) %>%
+    filter(!is.na(Start_Time_Parsed)) %>%
+    mutate(
+      Day_of_Week = wday(Start_Time_Parsed, label = TRUE, abbr = TRUE),
+      Hour = hour(Start_Time_Parsed)
+    )
+  return(data)
+}
+
+# Dictionary of cities and file paths
+cities <- list(
+  Chicago = "chicago.csv",
+  "New York City" = "new-york-city.csv",
+  Washington = "washington.csv"
+)
+
+# Load all datasets together
+bike_data <- map2_dfr(cities, names(cities), load_city_data)
+```
+
+Question 1: Most Popular Day of the Week
+
+```{r}
+popular_day <- bike_data %>%
+  group_by(City, Day_of_Week) %>%
+  summarise(Trips = n(), .groups = "drop") %>%
+  arrange(City, desc(Trips))
+
+# Most popular day per city
+popular_day %>%
+  group_by(City) %>%
+  slice_max(Trips, n = 1)
+
+# Plot
+ggplot(popular_day, aes(x = Day_of_Week, y = Trips, fill = City)) +
+  geom_col(position = "dodge") +
+  labs(title = "Bike Trips by Day of the Week",
+       x = "Day of Week",
+       y = "Number of Trips") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "top")
+
+```
+
+The busiest days differ by city, but weekends tend to see higher usage in some cities, while weekday commuting dominates in others.
+
+Question 2: Average Trip Duration by User Type
+
+```{r}
+avg_duration_user_type <- bike_data %>%
+  filter(!is.na(`User Type`), !is.na(`Trip Duration`)) %>%
+  group_by(City, `User Type`) %>%
+  summarise(Average_Duration = mean(`Trip Duration`, na.rm = TRUE),
+            Median_Duration = median(`Trip Duration`, na.rm = TRUE),
+            .groups = "drop")
+
+avg_duration_user_type
+
+# Plot
+ggplot(avg_duration_user_type, aes(x = `User Type`, y = Average_Duration, fill = City)) +
+  geom_col(position = "dodge") +
+  labs(title = "Average Trip Duration by User Type and City",
+       x = "User Type",
+       y = "Avg Trip Duration (seconds)") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "top")
+
+```
+
+Subscribers typically have shorter trips (often commuting), while casual users take longer trips on average.
+
+Question 3: Most Common Start Stations
+
+```{r}
+top_start_stations <- bike_data %>%
+  group_by(City, `Start Station`) %>%
+  summarise(Trips = n(), .groups = "drop") %>%
+  arrange(City, desc(Trips)) %>%
+  group_by(City) %>%
+  slice_head(n = 1)
+
+top_start_stations
+
+# Plot
+ggplot(top_start_stations, aes(x = City, y = Trips, fill = City)) +
+  geom_col() +
+  geom_text(aes(label = `Start Station`), vjust = -0.5, size = 4) +
+  labs(title = "Most Popular Start Station in Each City",
+       x = "City",
+       y = "Number of Trips") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+```
+
+Each city has a standout station that accounts for a large number of trips, often near central hubs or attractions.
+
+Question 4: Peak Hours of Usage
+
+```{r}
+peak_hours <- bike_data %>%
+  filter(!is.na(Hour)) %>%
+  group_by(City, Hour) %>%
+  summarise(Trips = n(), .groups = "drop") %>%
+  group_by(City) %>%
+  mutate(Percent = Trips / sum(Trips) * 100)
+
+peak_hours
+
+# Plot
+ggplot(peak_hours, aes(x = Hour, y = Trips, color = City)) +
+  geom_line(size = 1.2) +
+  geom_point() +
+  labs(title = "Peak Bike Usage Hours by City",
+       x = "Hour of Day",
+       y = "Number of Trips") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "top")
+
+```
+
+Usage peaks during commute hours (around 8 AM and 5–6 PM), showing that many riders use bikeshare for work commutes.
+Conclusion
+
+Popular Days: Each city has its own busiest day, often aligned with either tourism or commuting.
+
+Trip Durations: Subscribers ride shorter trips, while casual users ride longer.
+
+Start Stations: Popular start stations are near central hubs or attractions.
+
+Peak Hours: Morning and evening commutes dominate bike usage.
+
+This analysis highlights how bikeshare usage varies across cities and reflects both commuter and recreational behavior.
